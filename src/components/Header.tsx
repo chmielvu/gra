@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { YandereLedger } from 'src/types/index';
+import { YandereLedger } from '../shared/types/index';
 
 interface HeaderProps {
   onReset?: () => void;

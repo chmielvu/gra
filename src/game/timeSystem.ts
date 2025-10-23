@@ -1,4 +1,3 @@
-
 type TimeOfDay = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 
 const TIME_PROGRESSION: TimeOfDay[] = ['Morning', 'Afternoon', 'Evening', 'Night'];

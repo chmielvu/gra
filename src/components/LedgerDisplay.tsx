@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { YandereLedger, GeneratedCharacter } from 'src/types/index';
+import { YandereLedger, GeneratedCharacter } from '../shared/types/index';
 
 interface LedgerDisplayProps {
   ledger: YandereLedger;

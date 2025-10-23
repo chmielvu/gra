@@ -1,6 +1,7 @@
+import { TRAITS } from '../shared/constants/gameData';
+import { GeneratedCharacter, TraitKey, EducatorArchetype, SubjectArchetype } from '../shared/types/index';
 
-import { TRAITS } from 'src/constants/gameData';
-import { GeneratedCharacter, TraitKey, EducatorArchetype, SubjectArchetype } from 'src/types/index';
+// ... (ARCHETYPE_NAMES, CORE_TRAITS_BY_ARCHETYPE, etc. remain the same)
 
 const ARCHETYPE_NAMES: Record<EducatorArchetype | SubjectArchetype, string[]> = {
     [EducatorArchetype.TheSadist]: ["Selene", "Lysandra"],

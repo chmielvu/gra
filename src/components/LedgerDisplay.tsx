@@ -1,8 +1,6 @@
 
-
 import React from 'react';
-// FIX: Changed `import type` to `import` to resolve module resolution error.
-import { YandereLedger, GeneratedCharacter } from '../types';
+import type { YandereLedger, GeneratedCharacter } from '../types';
 
 interface LedgerDisplayProps {
   ledger: YandereLedger;

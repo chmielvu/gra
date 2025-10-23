@@ -1,3 +1,4 @@
+
 export interface CoreYandereMatrix {
   obsessionsAndDecayVortices: {
     character: string;
@@ -26,8 +27,11 @@ export interface GoYJEdge {
   yandereInversion: number;
   agencyToll: number;
   terrainModifier: number;
+  // --- v5.0 Expansion ---
+  edgeType?: 'standard' | 'falseHope' | 'traumaBond' | 'symbolicDefiance';
 }
 
+// FIX: Added missing interface definition for the story graph structure.
 export interface GraphOfYandereJests {
   nodes: GoYJNode[];
   edges: GoYJEdge[];
@@ -44,6 +48,11 @@ export interface YandereLedger {
     obsession: string;
     decayVortex: string;
   }[];
+  // --- v5.0 Expansion ---
+  traumaLevel: number;
+  hopeLevel: number;
+  physicalIntegrity: number;
+  interpersonalBonds: { [characterName: string]: number };
 }
 
 export interface GameState {

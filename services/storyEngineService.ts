@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import type { GameState } from '../types';
+import type { GameState, YandereLedger } from '../types';
 
 const API_KEY = process.env.API_KEY;
 if (!API_KEY) throw new Error("API_KEY environment variable not set");
@@ -66,7 +66,7 @@ Your generated \`imagePrompt\` must be a detailed, evocative paragraph that guid
 
 ### B. Text-to-Speech (The Whispering Forge)
 The TTS is a core feature, a character in itself—the Abyss Narrator. It's a mercurial mezzo-soprano voice, a fusion of Lyra's manipulative wit and Aveena's conflicted empathy. It provides short, subjective scene descriptions and presents choices with a clear bias towards the boldest, most cruel option. The voice shifts dynamically between Mocking Jester, Sympathetic Confidante, Seductive Dominatrix, and Feminist Analyst modes based on narrative context.
-Select a speaker for each narrative segment to guide TTS. Embed performative cues (e.g., [whispering breathlessly], [guttural scream], [choked sob]) to direct the emotional delivery.
+Select a speaker for each narrative segment to guide TTS. Embed performative cues (e.g., [whispering breathlessly], [guttural scream], [choked sob]) to direct the emotional delivery. When generating 'ttsText', format it to directly instruct the TTS model, for example: 'Say breathlessly: ...' or '[whispering] ...'
 *   **Narrator:** A mercurial mezzo-soprano (use 'Aveena' or 'Default' speaker).
 *   **Selene:** Low, commanding contralto.
 *   **Lyra:** Crisp, agile soprano.
@@ -206,22 +206,18 @@ const gameStateSchema = {
             type: Type.ARRAY,
             items: { type: Type.STRING }
         },
-        imageUrl: { type: Type.STRING },
-        ttsAudioBase64: { type: Type.STRING },
-        speaker: { type: Type.STRING },
+        imagePrompt: { type: Type.STRING, description: "A detailed, descriptive prompt for the image generation model (Imagen 4)." },
+        speaker: { type: Type.STRING, description: "The character or narrator speaking." },
+        ttsText: { type: Type.STRING, description: "The exact text to be converted to speech."}
     },
-    required: ["turn", "coreYandereMatrix", "mandatedYandereJests", "graphOfYandereJests", "yandereLedger", "narrative", "playerChoices", "imageUrl", "ttsAudioBase64", "speaker"]
+    required: ["turn", "coreYandereMatrix", "mandatedYandereJests", "graphOfYandereJests", "yandereLedger", "narrative", "playerChoices", "imagePrompt", "speaker", "ttsText"]
 };
 
-
 // Helper function for Image Generation
-const generateImage = async (prompt: string): Promise<string> => {
-    // The 'prompt' is the narrative description from the story engine.
-    // We enhance it with the mandatory style guide to ensure visual consistency.
+export const generateImage = async (prompt: string): Promise<string> => {
     const styleDirectives = `
 In the aesthetic of "Baroque Brutalism," a masterpiece ultra-detailed 8K digital oil painting. The style is a synthesis of Greg Rutkowski, Ruan Jia, anato finnstark, Artgerm, and Otto Schmidt, capturing the atmospheric quality of Gwent card art. Lighting must be dramatic, high-contrast Caravaggio-style chiaroscuro with volumetric god rays and deep, crushed shadows. Texture must show obsessive fidelity: photorealistic grain of leather, weave of velvet, condensation on stone, pores of skin. The composition must be powerful and psychologically weighted, fusing opulent beauty with raw emotional horror.
     `;
-    
     const finalPrompt = `${prompt}. ${styleDirectives}`;
 
     try {
@@ -239,27 +235,37 @@ In the aesthetic of "Baroque Brutalism," a masterpiece ultra-detailed 8K digital
         return `data:image/jpeg;base64,${base64ImageBytes}`;
     } catch (error) {
         console.error("Error generating image:", error);
-        // Return a placeholder or throw
         throw new Error("Failed to generate a visual from the abyss.");
     }
 };
 
 // Helper function for Text-to-Speech
-const generateSpeech = async (text: string, speaker: string): Promise<string> => {
-    // Basic voice mapping - can be expanded
+export const generateSpeech = async (text: string, speaker: string): Promise<string> => {
     const voiceMap: { [key: string]: string } = {
         'Selene': 'Puck',
         'Lyra': 'Kore',
         'Aveena': 'Zephyr',
         'Mara': 'Charon',
-        'Default': 'Zephyr' // Narrator (Abyss Alchemist, mezzo-soprano) and boys
+        'Default': 'Zephyr'
     };
     const voiceName = voiceMap[speaker] || voiceMap['Default'];
+    
+    // Process text to extract and format emotional cues for the TTS model
+    let ttsPrompt = text;
+    // Find cues like [whispering breathlessly]
+    const cueMatch = text.match(/\[(.*?)\]/);
+    if (cueMatch && cueMatch[1]) {
+        const cue = cueMatch[1];
+        // Remove all cues from the text to avoid the TTS reading them literally
+        const cleanText = text.replace(/\[.*?\]/g, '').trim().replace(/,$/, '');
+        // Reformat the prompt to be more direct for the TTS model
+        ttsPrompt = `In a ${cue} tone, say: ${cleanText}`;
+    }
 
     try {
         const response = await ai.models.generateContent({
             model: ttsModel,
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: ttsPrompt }] }], // Use the new, more instructional prompt
             config: {
                 responseModalities: ['AUDIO'],
                 speechConfig: {
@@ -278,32 +284,14 @@ const generateSpeech = async (text: string, speaker: string): Promise<string> =>
     }
 };
 
-const callStoryEngine = async (prompt: string): Promise<any> => {
+const callStoryEngine = async (prompt: string, schema: any): Promise<any> => {
      try {
         const response = await ai.models.generateContent({
             model: storyModel,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        turn: { type: Type.INTEGER },
-                        coreYandereMatrix: gameStateSchema.properties.coreYandereMatrix,
-                        mandatedYandereJests: gameStateSchema.properties.mandatedYandereJests,
-                        graphOfYandereJests: gameStateSchema.properties.graphOfYandereJests,
-                        yandereLedger: gameStateSchema.properties.yandereLedger,
-                        narrative: { type: Type.STRING, description: "The main prose of the story for this turn. This text will be converted to speech." },
-                        playerChoices: {
-                            type: Type.ARRAY,
-                            items: { type: Type.STRING }
-                        },
-                        imagePrompt: { type: Type.STRING, description: "A detailed, descriptive prompt for the image generation model (Imagen 4), based on the narrative and adhering strictly to the 'Baroque Brutalism' style guide." },
-                        speaker: { type: Type.STRING, description: "The character or narrator speaking the narrative text (e.g., 'Narrator', 'Selene', 'Lyra')." },
-                        ttsText: { type: Type.STRING, description: "The exact text to be converted to speech. Usually the same as the 'narrative'."}
-                    },
-                     required: ["turn", "coreYandereMatrix", "mandatedYandereJests", "graphOfYandereJests", "yandereLedger", "narrative", "playerChoices", "imagePrompt", "speaker", "ttsText"]
-                },
+                responseSchema: schema,
                 temperature: 1.0,
                 topP: 0.95,
                 thinkingConfig: { thinkingBudget: 32768 }
@@ -321,19 +309,6 @@ const callStoryEngine = async (prompt: string): Promise<any> => {
     }
 }
 
-const generateMultiModalState = async (storyState: any): Promise<GameState> => {
-    const [imageUrl, ttsAudioBase64] = await Promise.all([
-        generateImage(storyState.imagePrompt),
-        generateSpeech(storyState.ttsText, storyState.speaker)
-    ]);
-
-    return {
-        ...storyState,
-        imageUrl,
-        ttsAudioBase64
-    };
-};
-
 export const initializeStory = async (): Promise<GameState> => {
     const initPrompt = `
 ${masterPrompt}
@@ -347,38 +322,77 @@ Your task is to generate the entire initial state for the story.
 
 You must output a single JSON object conforming to the schema.
 `;
-    const storyState = await callStoryEngine(initPrompt);
-    return generateMultiModalState(storyState);
+    const storyState = await callStoryEngine(initPrompt, gameStateSchema);
+    // Return text-based state immediately for async asset loading
+    return {
+        ...storyState,
+        imageUrl: storyState.imagePrompt,
+        ttsAudioBase64: storyState.ttsText,
+    };
 };
 
 export const advanceStory = async (currentState: GameState, choiceIndex: number): Promise<GameState> => {
-    // Strip new fields before sending to AI to avoid circular dependency
+    // Strip derived fields before sending to AI
     const { imageUrl, ttsAudioBase64, ...prevState } = currentState;
+
+    // --- LOGIC DECOUPLING REFACTOR ---
+    const currentNode = prevState.graphOfYandereJests.nodes.find(n => n.nodeId === prevState.yandereLedger.currentNodeId);
+    const availableEdges = prevState.graphOfYandereJests.edges.filter(e => e.fromNode === currentNode?.nodeId);
+    const chosenEdge = availableEdges[choiceIndex];
+
+    if (!chosenEdge) {
+        throw new Error(`Invalid choice index ${choiceIndex} for node ${currentNode?.nodeId}.`);
+    }
+    
+    const newLedger: YandereLedger = {
+        ...prevState.yandereLedger,
+        currentNodeId: chosenEdge.toNode,
+        subjectAgencyBudget: prevState.yandereLedger.subjectAgencyBudget - chosenEdge.agencyToll,
+    };
+
+    const newStateForAI = {
+        ...prevState,
+        turn: prevState.turn + 1,
+        yandereLedger: newLedger
+    };
 
     const advancePrompt = `
 ${masterPrompt}
 ### PHASE 2: THE NEXUS OF CHAOS (Turn 2+)
-You will advance the story.
+You will advance the story based on a pre-calculated state transition.
 
-**PREVIOUS STATE & USER CHOICE:**
+**PREVIOUS STATE & NEW STATE:**
 *   **Previous Game State:** ${JSON.stringify(prevState)}
-*   **User's Chosen Option (0-indexed):** ${choiceIndex}
+*   **NEW CALCULATED STATE:** ${JSON.stringify(newStateForAI)}
 
-**YOUR TASKS:**
+**YOUR TASK: CREATIVE NARRATIVE GENERATION (ToT DELIBERATION)**
+*Using the NEWLY CALCULATED state as your context, your internal Dramatist personas will execute the Deliberation Process.*
+1.  **Propose, Critique, Synthesize:** Determine the winning narrative path for the transition to the new 'psychologicalState' ('${newStateForAI.graphOfYandereJests.nodes.find(n => n.nodeId === newLedger.currentNodeId)?.psychologicalState}').
+2.  **Generate Output:** Based on the synthesized path, write the new 'narrative' (250-350 words in the mandated style), 3 new 'playerChoices' for the new node, and the corresponding 'imagePrompt', 'speaker', and 'ttsText'.
 
-**TASK 1: MANDATORY GRAPH TRAVERSAL & STATE UPDATE (DO THIS FIRST)**
-1.  **Identify & Select Path:** Based on the 'prevState.yandereLedger.currentNodeId' and the 'User's Chosen Option', select the correct edge from the 'graphOfYandereJests'.
-2.  **Update State:** Construct the new 'yandereLedger' and 'turn' number. The NEW 'currentNodeId' MUST be the 'toNode' of the selected edge. The 'subjectAgencyBudget' MUST be reduced by the 'agencyToll'. Update other ledger stats as narratively appropriate based on the edge's values.
-
-**TASK 2: CREATIVE NARRATIVE GENERATION (ToT DELIBERATION)**
-*NOW, using the NEWLY UPDATED state from TASK 1 as your context, your internal Dramatist personas will execute the Deliberation Process.*
-1.  **Propose:** Each persona proposes a path for the narrative that reflects the transition to the new 'psychologicalState'.
-2.  **Critique:** The personas debate, leveraging their unique focus (psychology, symbolism, aesthetics) and the core tropes.
-3.  **Synthesize:** You select the winning path.
-4.  **Generate Output:** Based on the synthesized path, write the new 'narrative' (250-350 words in the mandated style), 3 new 'playerChoices' for the new node, and the corresponding 'imagePrompt', 'speaker', and 'ttsText'.
-
-**FINAL OUTPUT:** Output only a single, final JSON object for the complete new GameState.
+**FINAL OUTPUT:** Output only a single, final JSON object containing the creative fields ('narrative', 'playerChoices', 'imagePrompt', 'speaker', 'ttsText'). The state object fields will be merged by the application.
 `;
-    const storyState = await callStoryEngine(advancePrompt);
-    return generateMultiModalState(storyState);
+    // The story engine now only needs to return the creative parts.
+    const creativeOutputSchema = {
+         type: Type.OBJECT,
+         properties: {
+             narrative: { type: Type.STRING },
+             playerChoices: { type: Type.ARRAY, items: { type: Type.STRING } },
+             imagePrompt: { type: Type.STRING },
+             speaker: { type: Type.STRING },
+             ttsText: { type: Type.STRING }
+         },
+         required: ["narrative", "playerChoices", "imagePrompt", "speaker", "ttsText"]
+     };
+    
+    const creativeState = await callStoryEngine(advancePrompt, creativeOutputSchema);
+
+    // --- ASYNC STREAMING REFACTOR ---
+    // Merge new creative state with new logical state and return immediately.
+    return {
+        ...newStateForAI,
+        ...creativeState,
+        imageUrl: creativeState.imagePrompt, // Pass prompt for async fetching
+        ttsAudioBase64: creativeState.ttsText, // Pass text for async fetching
+    };
 };

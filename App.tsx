@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { GameState } from './types';
-import { initializeStory, advanceStory } from './services/storyEngineService';
+import { initializeStory, advanceStory, generateImage, generateSpeech } from './services/storyEngineService';
 import { playAudio } from './utils/audio';
 import Header from './components/Header';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -15,36 +15,75 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // State for final, generated assets
+  const [finalImageUrl, setFinalImageUrl] = useState<string>('');
+  const [finalAudioData, setFinalAudioData] = useState<string>('');
+  const [isAssetLoading, setIsAssetLoading] = useState<boolean>(false);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  // Effect to play audio when game state updates with new TTS data
+  // Effect to play audio when final audio data is available
   useEffect(() => {
-    if (gameState?.ttsAudioBase64) {
+    if (finalAudioData) {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
-      playAudio(gameState.ttsAudioBase64, audioContextRef.current, audioSourceRef);
+      playAudio(finalAudioData, audioContextRef.current, audioSourceRef);
     }
-    // Cleanup function to stop audio if component unmounts or state changes
     return () => {
       if (audioSourceRef.current) {
-        try {
-          audioSourceRef.current.stop();
-        } catch (e) {
-          // May throw if already stopped
-        }
+        try { audioSourceRef.current.stop(); } catch (e) { /* ignore */ }
       }
     };
-  }, [gameState?.ttsAudioBase64]);
+  }, [finalAudioData]);
+
+  // Effect to fetch assets when the text-based game state updates
+  useEffect(() => {
+    if (!gameState || !gameState.narrative) return;
+
+    const fetchAssets = async () => {
+      setIsAssetLoading(true);
+      // Reset previous assets to ensure UI updates correctly
+      setFinalImageUrl('');
+      setFinalAudioData('');
+
+      try {
+        // gameState.imageUrl is the prompt, gameState.ttsAudioBase64 is the text
+        const [imageUrlResult, audioDataResult] = await Promise.allSettled([
+          generateImage(gameState.imageUrl),
+          generateSpeech(gameState.ttsAudioBase64, gameState.speaker)
+        ]);
+        
+        if (imageUrlResult.status === 'fulfilled') {
+            setFinalImageUrl(imageUrlResult.value);
+        } else {
+            console.error("Image generation failed:", imageUrlResult.reason);
+            setError("The visual for this scene failed to generate.");
+        }
+
+        if (audioDataResult.status === 'fulfilled') {
+            setFinalAudioData(audioDataResult.value);
+        } else {
+             console.error("Speech generation failed:", audioDataResult.reason);
+             // This error is less critical; we can proceed without audio.
+        }
+
+      } catch (e) {
+        console.error("Failed to fetch secondary assets", e);
+        setError(e instanceof Error ? e.message : 'Failed to load visual or audio assets.');
+      } finally {
+        setIsAssetLoading(false);
+      }
+    };
+    
+    fetchAssets();
+  }, [gameState?.narrative]);
 
   const stopCurrentAudio = () => {
     if (audioSourceRef.current) {
-      try {
-        audioSourceRef.current.stop();
-      } catch (e) {
-         // May throw if already stopped
-      }
+      try { audioSourceRef.current.stop(); } catch (e) { /* ignore */ }
       audioSourceRef.current = null;
     }
   };
@@ -70,35 +109,18 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     stopCurrentAudio();
+    
+    const previousGameState = gameState;
+
     try {
-      // Temporarily remove choices to prevent multiple clicks while processing
       setGameState(prev => prev ? { ...prev, playerChoices: [] } : null);
       const nextState = await advanceStory(gameState, choiceIndex);
       setGameState(nextState);
     } catch (err) {
       console.error(err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-      
-      let userFriendlyError = `An unexpected error occurred while advancing the story. Please try again. Details: ${errorMessage}`;
-      
-      // Differentiate errors to provide more specific and accurate user feedback.
-      if (errorMessage.includes("The Abyss Alchemist")) {
-          // This is a core failure from the story engine model itself.
-          userFriendlyError = `A core narrative error occurred. The story engine reported: "${errorMessage}" Please try making the choice again.`;
-      } else if (errorMessage.includes("visual from the abyss")) {
-          // The story text was likely generated, but the image failed. The UI state is reverted.
-          // The message now accurately reflects that the story could not proceed.
-          userFriendlyError = `The story could not proceed because the new scene's visual failed to generate. Please try your choice again. Error: ${errorMessage}`;
-      } else if (errorMessage.includes("voice from the forge")) {
-          // The story text was likely generated, but the audio failed. The UI state is reverted.
-          userFriendlyError = `The story could not proceed because the new scene's audio failed to generate. Please try your choice again. Error: ${errorMessage}`;
-      }
-
-      setError(userFriendlyError);
-      
-      // Restore choices on error to allow the user to try the same choice again.
-      // The rest of the gameState is implicitly kept from the previous state because setGameState was not called with a new state.
-      setGameState(prev => prev ? { ...prev, playerChoices: gameState.playerChoices } : gameState);
+      setError(`The story could not proceed. Please try again. Error: ${errorMessage}`);
+      setGameState(previousGameState);
     } finally {
       setIsLoading(false);
     }
@@ -109,7 +131,11 @@ const App: React.FC = () => {
     setGameState(null);
     setError(null);
     setIsLoading(false);
+    setFinalImageUrl('');
+    setFinalAudioData('');
   }
+
+  const isTransitioning = isLoading || (gameState != null && isAssetLoading);
 
   return (
     <div className="min-h-screen bg-slate-900 font-sans flex flex-col">
@@ -117,7 +143,7 @@ const App: React.FC = () => {
       
       <main className="flex-grow relative">
         {isLoading && !gameState && <Loader message="The Forge's Loom is weaving..." />}
-        {error && <ErrorMessage message={error} />}
+        {error && !isLoading && <div className="p-4"><ErrorMessage message={error} /></div>}
 
         {!gameState && !isLoading && !error && (
           <div className="h-full flex items-center justify-center">
@@ -125,14 +151,14 @@ const App: React.FC = () => {
           </div>
         )}
         
-        {gameState && !error && (
+        {gameState && (
           <>
-            <ImageDisplay imageUrl={gameState.imageUrl} />
+            <ImageDisplay imageUrl={finalImageUrl} />
             
-            <div className={`absolute z-10 bottom-0 left-0 right-0 p-4 md:p-8 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-all duration-500 ${isLoading ? 'is-pacing' : ''}`}>
+            <div className={`absolute z-10 bottom-0 left-0 right-0 p-4 md:p-8 bg-gradient-to-t from-black/90 via-black/70 to-transparent transition-all duration-500 ${isTransitioning ? 'is-pacing' : ''}`}>
               <div className="container mx-auto max-w-4xl w-full">
                 <StoryDisplay narrative={gameState.narrative} />
-                <ChoicePanel choices={gameState.playerChoices} onChoice={handleChoice} disabled={isLoading} />
+                <ChoicePanel choices={gameState.playerChoices} onChoice={handleChoice} disabled={isTransitioning} />
               </div>
             </div>
           </>

@@ -1,114 +1,135 @@
 
 import { create } from 'zustand';
-import type { GameState } from '../types';
-import { initializeStory, advanceStory, generateImage, generateSpeech } from '../services/storyEngineService';
+// FIX: Corrected module import path for types to point to 'src/types/index' which contains the correct definitions.
+import { GameState, CreativeOutput, TurnContext } from 'src/types/index';
+import { initializeGameState, processPlayerChoice } from 'src/game/engine';
+import { generateImage, generateSpeech } from 'src/services/geminiService';
+
+type GamePhase = 'Welcome' | 'Loading' | 'Playing' | 'Error';
 
 interface GameStoreState {
-  gameState: GameState | null;
-  isLoading: boolean; // For primary story progression (AI calls)
+  phase: GamePhase;
   error: string | null;
-  finalImageUrl: string;
-  finalAudioData: string;
-  isAssetLoading: boolean; // For secondary assets (image/audio calls)
+  gameState: GameState | null;
+  currentTurn: (CreativeOutput & { vocalStyle: string }) | null;
+  turnContext: TurnContext | null; // Holds context needed for the *next* choice
+  assets: {
+    currentImageUrl: string;
+    isImageLoading: boolean;
+    audioData: string;
+    isAudioLoading: boolean;
+  };
 }
 
 interface GameStoreActions {
   startStory: () => Promise<void>;
   makeChoice: (choiceId: string) => Promise<void>;
   reset: () => void;
-  _fetchAssets: () => Promise<void>;
 }
 
-export const useGameStore = create<GameStoreState & GameStoreActions>((set, get) => ({
-  gameState: null,
-  isLoading: false,
-  error: null,
-  finalImageUrl: '',
-  finalAudioData: '',
-  isAssetLoading: false,
+const initialState: GameStoreState = {
+    phase: 'Welcome',
+    error: null,
+    gameState: null,
+    currentTurn: null,
+    turnContext: null,
+    assets: {
+        currentImageUrl: '',
+        isImageLoading: false,
+        audioData: '',
+        isAudioLoading: false,
+    },
+};
 
-  _fetchAssets: async () => {
-    const { gameState } = get();
-    if (!gameState || !gameState.narrative) return;
+export const useGameStore = create<GameStoreState & GameStoreActions>((set, get) => {
+  const fetchAssets = async (turn: CreativeOutput & { vocalStyle: string }) => {
+    if (!turn) return;
 
-    set({ isAssetLoading: true, finalImageUrl: '', finalAudioData: '' });
+    set(state => ({
+        ...state,
+        assets: { ...state.assets, isImageLoading: true, isAudioLoading: true, audioData: '' }
+    }));
 
-    try {
-      const [imageUrlResult, audioDataResult] = await Promise.allSettled([
-        generateImage(gameState.imagePrompt),
-        generateSpeech(gameState.ttsText, gameState.speaker, gameState.ttsVocalStyle)
-      ]);
-      
-      if (imageUrlResult.status === 'fulfilled') {
-        set({ finalImageUrl: imageUrlResult.value });
-      } else {
-        console.error("Image generation failed:", imageUrlResult.reason);
+    const [imageResult, audioResult] = await Promise.allSettled([
+        generateImage(turn.imagePrompt),
+        generateSpeech(turn.ttsText, turn.speaker, turn.vocalStyle),
+    ]);
+    
+    const assetUpdates: Partial<GameStoreState['assets']> = {};
+    // FIX: Correctly check for rejected promise status before accessing 'reason' property.
+    if (imageResult.status === 'fulfilled' && imageResult.value) {
+        assetUpdates.currentImageUrl = imageResult.value;
+    } else if (imageResult.status === 'rejected') {
+        console.error("Image generation failed:", imageResult.reason);
+    }
+    
+    // FIX: Correctly check for rejected promise status before accessing 'reason' property.
+    if (audioResult.status === 'fulfilled' && audioResult.value) {
+        assetUpdates.audioData = audioResult.value;
+    } else if (audioResult.status === 'rejected') {
+        console.error("Speech generation failed:", audioResult.reason);
+    }
+
+    set(state => ({
+        ...state,
+        assets: { ...state.assets, ...assetUpdates, isImageLoading: false, isAudioLoading: false }
+    }));
+  };
+
+  return {
+    ...initialState,
+
+    startStory: async () => {
+      set({ phase: 'Loading', error: null });
+      try {
+        const { initialGameState, initialTurn, initialTurnContext } = await initializeGameState();
+        set({
+            gameState: initialGameState,
+            currentTurn: initialTurn,
+            turnContext: initialTurnContext,
+            phase: 'Playing',
+        });
+        fetchAssets(initialTurn);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred.';
+        set({ phase: 'Error', error: message });
       }
+    },
 
-      if (audioDataResult.status === 'fulfilled') {
-        set({ finalAudioData: audioDataResult.value });
-      } else {
-        console.error("Speech generation failed:", audioDataResult.reason);
+    makeChoice: async (choiceId: string) => {
+      const { gameState, turnContext, assets } = get();
+      if (!gameState || !turnContext) return;
+
+      const previousState = { gameState, currentTurn: get().currentTurn };
+      set({ phase: 'Loading', error: null, currentTurn: { ...get().currentTurn!, playerChoices: [] } });
+      
+      try {
+        const { nextGameState, nextTurn, nextTurnContext } = await processPlayerChoice(
+            gameState,
+            choiceId,
+            turnContext,
+            assets.currentImageUrl
+        );
+        set({
+            gameState: nextGameState,
+            currentTurn: nextTurn,
+            turnContext: nextTurnContext,
+            phase: 'Playing'
+        });
+        fetchAssets(nextTurn);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred.';
+        set({
+            phase: 'Error',
+            error: `The story could not proceed. Error: ${message}`,
+            gameState: previousState.gameState,
+            currentTurn: previousState.currentTurn, // Restore previous turn to allow retry
+        });
       }
-    } catch (e) {
-      console.error("Failed to fetch secondary assets", e);
-    } finally {
-      set({ isAssetLoading: false });
+    },
+
+    reset: () => {
+      set(initialState);
     }
-  },
-
-  startStory: async () => {
-    set({ isLoading: true, error: null, gameState: null });
-    try {
-      const initialState = await initializeStory();
-      set({ gameState: initialState });
-      // Fetch assets after the initial state is set
-      get()._fetchAssets();
-    } catch (err) {
-      console.error(err);
-      set({ error: err instanceof Error ? err.message : 'An unknown error occurred during initialization.' });
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  makeChoice: async (choiceId: string) => {
-    const { gameState, _fetchAssets, finalImageUrl } = get();
-    if (!gameState) return;
-
-    set({ isLoading: true, error: null });
-    const previousGameState = gameState;
-
-    try {
-      // Immediately remove choices for better UX while waiting for AI
-      set({ gameState: { ...gameState, playerChoices: [] } });
-      
-      const nextState = await advanceStory(gameState, choiceId, finalImageUrl);
-      
-      set({ gameState: nextState });
-      // Fetch assets for the new state
-      _fetchAssets();
-
-    } catch (err) {
-      console.error(err);
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-      set({ 
-        error: `The story could not proceed. Please try again. Error: ${errorMessage}`,
-        gameState: previousGameState // Restore previous state on error to allow retry
-      });
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  reset: () => {
-    set({
-      gameState: null,
-      isLoading: false,
-      error: null,
-      finalImageUrl: '',
-      finalAudioData: '',
-      isAssetLoading: false
-    });
-  }
-}));
+  };
+});

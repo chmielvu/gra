@@ -1,5 +1,5 @@
 
-import type React from 'react';
+import { MutableRefObject } from 'react';
 
 // Base64 decoding function
 function decode(base64: string): Uint8Array {
@@ -36,7 +36,7 @@ async function decodeAudioData(
 export const playAudio = async (
   base64Audio: string, 
   audioContext: AudioContext,
-  audioSourceRef: React.MutableRefObject<AudioBufferSourceNode | null>
+  audioSourceRef: MutableRefObject<AudioBufferSourceNode | null>
 ) => {
   try {
      if (audioSourceRef.current) {

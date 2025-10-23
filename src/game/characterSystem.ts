@@ -1,8 +1,16 @@
 
-import { TRAITS } from '../constants/proceduralConstants';
-import { GeneratedCharacter, TraitKey } from '../types';
-import { EducatorArchetype, SubjectArchetype } from '../types';
-import { generateName } from './nameGenerator';
+import { TRAITS } from 'src/constants/gameData';
+import { GeneratedCharacter, TraitKey, EducatorArchetype, SubjectArchetype } from 'src/types/index';
+
+const ARCHETYPE_NAMES: Record<EducatorArchetype | SubjectArchetype, string[]> = {
+    [EducatorArchetype.TheSadist]: ["Selene", "Lysandra"],
+    [EducatorArchetype.TheManipulator]: ["Lyra", "Calista"],
+    [EducatorArchetype.TheAnalyst]: ["Eleni", "Yala"],
+    [EducatorArchetype.TheOverseer]: ["Mara", "Aveena"],
+    [SubjectArchetype.TheCatalyst]: ["Jared", "Kael"],
+    [SubjectArchetype.TheProtector]: ["Gavric", "Roric"],
+    [SubjectArchetype.TheDefiant]: ["Torin", "Eryndor"],
+};
 
 const CORE_TRAITS_BY_ARCHETYPE: Partial<Record<EducatorArchetype | SubjectArchetype, TraitKey[]>> = {
     [EducatorArchetype.TheSadist]: ['SADISTIC', 'SEDUCTIVELY_MOCKING'],
@@ -24,6 +32,11 @@ const MOODS_BY_ARCHETYPE: Partial<Record<EducatorArchetype | SubjectArchetype, s
     [SubjectArchetype.TheDefiant]: ['Angry', 'Sullen', 'Scornful'],
 };
 
+const generateName = (archetype: EducatorArchetype | SubjectArchetype): string => {
+    const nameList = ARCHETYPE_NAMES[archetype] || [];
+    if (nameList.length === 0) return "Nameless";
+    return nameList[Math.floor(Math.random() * nameList.length)];
+};
 
 function generateCharacter(
     archetype: EducatorArchetype | SubjectArchetype,
@@ -38,50 +51,9 @@ function generateCharacter(
     } while (existingIds.has(id));
     existingIds.add(id);
 
-    // Refactored Trait Selection Logic
-    const selectedTraits: TraitKey[] = [];
     const coreTraits = CORE_TRAITS_BY_ARCHETYPE[archetype] || [];
-    if(coreTraits.length > 0) {
-        // Add one or two core traits
-        const shuffledCore = [...coreTraits].sort(() => 0.5 - Math.random());
-        selectedTraits.push(shuffledCore[0]);
-        if (Math.random() > 0.5 && shuffledCore.length > 1) {
-             selectedTraits.push(shuffledCore[1]);
-        }
-    }
-
-    const availableTraitKeys = Object.keys(TRAITS) as TraitKey[];
-    let attempts = 0;
-    const maxTraits = 3 + Math.floor(Math.random() * 2); // 3 or 4 traits total
-
-    while (selectedTraits.length < maxTraits && attempts < 100) {
-        attempts++;
-        const potentialTraitKey = availableTraitKeys[Math.floor(Math.random() * availableTraitKeys.length)];
-
-        if (selectedTraits.includes(potentialTraitKey)) continue;
-
-        const potentialTraitDef = TRAITS[potentialTraitKey];
-        if (!potentialTraitDef) continue; 
-
-        let hasConflict = false;
-        for (const selectedTraitKey of selectedTraits) {
-            const selectedTraitDef = TRAITS[selectedTraitKey];
-            if (!selectedTraitDef) continue;
-
-            if (potentialTraitDef.conflictsWith?.includes(selectedTraitKey) ||
-                selectedTraitDef.conflictsWith?.includes(potentialTraitKey)) {
-                hasConflict = true;
-                break;
-            }
-        }
-
-        if (!hasConflict) {
-            selectedTraits.push(potentialTraitKey);
-        }
-    }
+    const traits = [...new Set(coreTraits)];
     
-    const traits = [...new Set(selectedTraits)];
-
     const possibleMoods = MOODS_BY_ARCHETYPE[archetype] || ['Neutral'];
     const currentMood = possibleMoods[Math.floor(Math.random() * possibleMoods.length)];
 
@@ -91,9 +63,9 @@ function generateCharacter(
         archetype,
         traits,
         currentMood,
-        backstoryKey: `BACKSTORY_${archetype.replace(' ', '')}_${traits[0]}`,
-        visualKey: `VISUAL_${archetype.replace(' ', '')}_${traits[1] || traits[0]}`,
-        audioKey: `AUDIO_${archetype.replace(' ', '')}_${traits[0]}`,
+        backstoryKey: `BACKSTORY_${id}`,
+        visualKey: `VISUAL_${id}`,
+        audioKey: `AUDIO_${id}`,
     };
 }
 
@@ -109,7 +81,7 @@ export function generateInitialRosters(): {
     const educatorArchetypes = [EducatorArchetype.TheSadist, EducatorArchetype.TheManipulator, EducatorArchetype.TheAnalyst, EducatorArchetype.TheOverseer];
     const educators = educatorArchetypes.map(arch => generateCharacter(arch, existingIds));
     
-    const subjectArchetypes = [SubjectArchetype.TheProtector, SubjectArchetype.TheDefiant, SubjectArchetype.TheDefiant];
+    const subjectArchetypes = [SubjectArchetype.TheProtector, SubjectArchetype.TheDefiant];
     const subjects = subjectArchetypes.map(arch => generateCharacter(arch, existingIds));
 
     return { player, educators, subjects };

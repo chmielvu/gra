@@ -1,5 +1,5 @@
 
-import type { EventTemplate, TraitDefinition, LocationDefinition } from "../types";
+import { EventTemplate, TraitDefinition, LocationDefinition, TraitKey } from "../types";
 import { NarrativeCadence, EducatorArchetype, SubjectArchetype, TraitCategory } from "../types";
 
 export const TRAITS: Record<string, TraitDefinition> = {
@@ -18,6 +18,7 @@ export const TRAITS: Record<string, TraitDefinition> = {
     SADISTIC: { name: "Sadistic", category: TraitCategory.Psychological, description: "Derives pleasure from others' suffering." },
     MASOCHISTIC: { name: "Masochistic", category: TraitCategory.Psychological, description: "Derives pleasure from own suffering/humiliation." },
     DISSOCIATIVE: { name: "Dissociative", category: TraitCategory.Psychological, description: "Detaches from reality under stress." },
+    QUIET_DEFIANCE: { name: "Quiet Defiance", category: TraitCategory.SubjectCoping, description: "Resists not with action, but with unshakable internal resolve." },
     // Educator Methods
     CLINICALLY_DETACHED: { name: "Clinically Detached", category: TraitCategory.EducatorMethod, description: "Views subjects purely as data points." },
     CASUALLY_CRUEL: { name: "Casually Cruel", category: TraitCategory.EducatorMethod, description: "Inflicts pain/humiliation without apparent malice, almost carelessly." },
@@ -38,6 +39,7 @@ export const LOCATIONS: Record<string, LocationDefinition> = {
     LOC_BOYS_HUTS: { id: "LOC_BOYS_HUTS", name: "Boys' Huts", tags: ["Shelter", "Communal", "Night"], descriptionKey: "LOCDESC_BOYS_HUTS" },
     LOC_OUTDOOR_DINING: { id: "LOC_OUTDOOR_DINING", name: "Outdoor Dining Area", tags: ["Social", "Communal", "Day", "Evening"], descriptionKey: "LOCDESC_OUTDOOR_DINING" },
     LOC_TRAINING_HALL: {id: "LOC_TRAINING_HALL", name: "Training Hall", tags: ["Training", "Public", "Day", "Ritual"], descriptionKey: "LOCDESC_TRAINING_HALL"},
+    LOC_MAGISTRA_LAB: {id: "LOC_MAGISTRA_LAB", name: "Magistra's Lab", tags: ["Private", "Medical", "Ritual"], descriptionKey: "LOCDESC_MAGISTRA_LAB"},
 };
 
 export const EVENT_TEMPLATES: EventTemplate[] = [
@@ -56,9 +58,9 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
         sceneSetupKey: "SETUP_INITITION_ATTACK_ANALYST",
         eventTitleKey: "TITLE_INITIATION_RITE",
         possibleChoices: [
-            { id: "Choice_Initiation_Glare", choiceTextTemplate: "Meet {Attacker.name}'s icy gaze with defiance.", consequences: [ { target: 'player', statChanges: { subjectAgencyBudget: -25, shamePainAbyssLevel: 15, hopeLevel: -5, traumaLevel: 5 } }] },
+            { id: "Choice_Initiation_Glare", choiceTextTemplate: "Meet {Attacker.name}'s icy gaze with defiance.", consequences: [ { target: 'player', statChanges: { subjectAgencyBudget: -25, shamePainAbyssLevel: 15, hopeLevel: -5, traumaLevel: 5 }, updateWorldState: { magistraMood: 'Intrigued' } }] },
             { id: "Choice_Initiation_Submit", choiceTextTemplate: "Lower your eyes, brace for impact.", consequences: [ { target: 'player', statChanges: { subjectAgencyBudget: -10, shamePainAbyssLevel: 25, hopeLevel: -10, traumaLevel: 10, physicalIntegrity: -5 } }] },
-            { id: "Choice_Initiation_Plea", choiceTextTemplate: "Please... don't.", consequences: [ { target: 'player', statChanges: { subjectAgencyBudget: -15, shamePainAbyssLevel: 30, hopeLevel: -15, traumaLevel: 8 } }] }
+            { id: "Choice_Initiation_Plea", choiceTextTemplate: "Please... don't.", consequences: [ { target: 'player', statChanges: { subjectAgencyBudget: -15, shamePainAbyssLevel: 30, hopeLevel: -15, traumaLevel: 8 }, updateWorldState: { magistraMood: 'Impatient' } }] }
         ]
     },
     {
@@ -93,7 +95,14 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
         eventTitleKey: "TITLE_Under_Her_Gaze",
         possibleChoices: [
             { id: "Choice_Eat_Quickly", choiceTextTemplate: "Eat quickly and avoid eye contact.", consequences: [{ target: 'player', statChanges: { traumaLevel: 2 } }] },
-            { id: "Choice_Stare_Back", choiceTextTemplate: "Meet {Observer.name}'s gaze.", consequences: [{ target: 'player', statChanges: { subjectAgencyBudget: 5 }, bondChanges: [{targetRole: 'Observer', change: 1}] }] },
+            { 
+                id: "Choice_Stare_Back", 
+                choiceTextTemplate: "Meet {Observer.name}'s gaze.", 
+                consequences: [
+                    { target: 'player', statChanges: { subjectAgencyBudget: 5 }, bondChanges: [{targetRole: 'Observer', change: 1}] },
+                    { target: 'player', setMood: { role: 'Observer', mood: 'Amused' } }
+                ] 
+            },
             { id: "Choice_Talk_To_Peer", choiceTextTemplate: "Try to make small talk with {Peer.name}.", consequences: [{ target: 'player', bondChanges: [{targetRole: 'Peer', change: 2}] }] }
         ]
     },
@@ -162,7 +171,6 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
         cadence: NarrativeCadence.Comfort,
         locationTags: ["Shelter", "Night"],
         triggerConditions: (ledger, player, rosters) => {
-            // FIX: Corrected and simplified bond checking logic.
             const protector = rosters.subjects.find(s => s.archetype === SubjectArchetype.TheProtector);
             if (!protector) return false;
             const bondWithProtector = ledger.interpersonalBonds[protector.id] ?? 0;
@@ -238,6 +246,57 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
                     { target: 'player', statChanges: { traumaLevel: 10, shamePainAbyssLevel: 5 } }
                 ]
             }
+        ]
+    },
+    {
+        id: "Event_Training_Endurance",
+        cadence: NarrativeCadence.Terror,
+        locationTags: ["Training"],
+        triggerConditions: (ledger) => ledger.physicalIntegrity > 50,
+        weight: 2,
+        roles: {
+            "Instructor": { archetype: EducatorArchetype.TheSadist },
+            "Subject": { mustBePlayer: true },
+            "Rival": { archetype: SubjectArchetype.TheDefiant }
+        },
+        sceneSetupKey: "SETUP_TRAINING_ENDURANCE",
+        eventTitleKey: "TITLE_Lesson_In_Pain",
+        possibleChoices: [
+            {
+                id: "Choice_Endure",
+                choiceTextTemplate: "Brace and endure the 'lesson'.",
+                consequences: [
+                    { target: 'player', statChanges: { physicalIntegrity: -15, traumaLevel: 10, hopeLevel: -5 } },
+                    { target: 'player', addTrait: 'STOIC' },
+                    { target: 'player', updateWorldState: { forgeIntensityLevel: 52, magistraMood: 'Pleased' } }
+                ]
+            },
+            {
+                id: "Choice_Resist",
+                choiceTextTemplate: "Try to resist the instructor.",
+                consequences: [
+                    { target: 'player', statChanges: { physicalIntegrity: -25, traumaLevel: 15, subjectAgencyBudget: 10 } },
+                    { target: 'player', updateWorldState: { forgeIntensityLevel: 60, magistraMood: 'Angry' } }
+                ]
+            }
+        ]
+    },
+    {
+        id: "Event_Magistra_Inspection",
+        cadence: NarrativeCadence.Terror,
+        locationTags: ["Public"],
+        triggerConditions: (ledger) => ledger.magistraMood === 'Angry' && ledger.day > 3,
+        isUnique: false,
+        weight: 10, // High weight when conditions met
+        roles: {
+            "Observer": { archetype: EducatorArchetype.TheSadist },
+            "Target": { mustBePlayer: true },
+        },
+        sceneSetupKey: "SETUP_MAGISTRA_INSPECTION",
+        eventTitleKey: "TITLE_The_Unseen_Gaze",
+        possibleChoices: [
+            { id: "Choice_Inspection_Endure", choiceTextTemplate: "Endure the suffocating scrutiny.", consequences: [{ target: 'player', statChanges: { traumaLevel: 15, subjectAgencyBudget: -10 }, updateWorldState: { magistraMood: 'Impatient' } }] },
+            { id: "Choice_Inspection_Defy", choiceTextTemplate: "Meet the unseen gaze with a flicker of defiance.", consequences: [{ target: 'player', statChanges: { traumaLevel: 10, subjectAgencyBudget: 5 }, updateWorldState: { magistraMood: 'Intrigued' } }] },
         ]
     }
 ];

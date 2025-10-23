@@ -1,7 +1,7 @@
 
 import React from 'react';
-// FIX: Changed `import type` to `import` to resolve module resolution error.
-import { YandereLedger } from '../types';
+// FIX: Corrected module import path for 'types' to point to the file inside the 'src' directory.
+import { YandereLedger } from '../src/types';
 
 interface HeaderProps {
   onReset?: () => void;

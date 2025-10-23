@@ -1,6 +1,6 @@
 
 import React from 'react';
-import type { YandereLedger, GeneratedCharacter } from '../types';
+import { YandereLedger, GeneratedCharacter } from 'src/types/index';
 
 interface LedgerDisplayProps {
   ledger: YandereLedger;
@@ -36,7 +36,10 @@ const LedgerDisplay: React.FC<LedgerDisplayProps> = ({ ledger, player, rosters }
       <div className="mb-4">
         <p className="text-lg text-slate-100 font-bold">{player.name}</p>
         <p className="text-sm text-slate-400 italic">"{player.archetype}"</p>
-        <p className="text-xs text-slate-400 mt-1">Traits: {player.traits.join(', ')}</p>
+        {player.currentMood && (
+          <p className="text-sm text-slate-300 font-sans mt-2">Mood: <span className="font-semibold text-amber-300 bg-amber-900/50 px-2 py-1 rounded">{player.currentMood}</span></p>
+        )}
+        <p className="text-xs text-slate-400 mt-2">Traits: {player.traits.join(', ')}</p>
       </div>
 
       <dl className="space-y-4 font-sans">
@@ -50,7 +53,6 @@ const LedgerDisplay: React.FC<LedgerDisplayProps> = ({ ledger, player, rosters }
             <div>
                 <dt className="text-slate-400 text-sm mb-2 font-bold">Interpersonal Bonds:</dt>
                 <dd className="text-slate-200 text-sm space-y-2">
-                    {/* FIX: Explicitly type `bondValue` to ensure it is treated as a number for comparison. */}
                     {Object.entries(ledger.interpersonalBonds).map(([charId, bondValue]: [string, number]) => (
                         <div key={charId} className="flex justify-between items-center bg-slate-900/50 p-2 rounded">
                             <span>{findCharacterName(charId)}:</span>

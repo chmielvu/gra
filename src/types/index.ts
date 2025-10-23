@@ -1,10 +1,10 @@
 
 export enum NarrativeCadence {
-    Comfort,       // Scenes of respite, false hope, minor kindness
-    Tension,       // The default state. Atmosphere of dread, observation
-    Humor,         // Rare scenes of dark, mocking humor
-    Terror,        // Direct psychological or physical torment
-    Aftermath      // Quiet, reflective scenes following Terror
+    Comfort,
+    Tension,
+    Humor,
+    Terror,
+    Aftermath
 }
 
 export enum EducatorArchetype {
@@ -22,16 +22,11 @@ export enum SubjectArchetype {
 
 export enum TraitCategory { 
     Core = "Core", 
-    Social = "Social", 
     Psychological = "Psychological", 
-    Combat = "Combat", 
     EducatorMethod = "Educator Method",
     SubjectCoping = "Subject Coping",
 }
 
-
-// These are now generic strings. The strong typing is enforced by the Record<string, ...> definitions
-// in proceduralConstants.ts which use these types. This breaks the circular dependency.
 export type TraitKey = string;
 export type LocationKey = string;
 
@@ -55,11 +50,10 @@ export interface GeneratedCharacter {
   name: string;
   archetype: EducatorArchetype | SubjectArchetype;
   traits: TraitKey[];
+  currentMood: string;
   backstoryKey: string;
   visualKey: string;
   audioKey: string;
-  currentMood?: string;
-  currentGoal?: string;
 }
 
 export interface YandereLedger {
@@ -75,23 +69,42 @@ export interface YandereLedger {
   physicalIntegrity: number;
   interpersonalBonds: Record<string, number>;
   forgeIntensityLevel: number;
-  magistraMood?: 'Pleased' | 'Impatient' | 'Intrigued' | 'Angry';
+  magistraMood: 'Pleased' | 'Impatient' | 'Intrigued' | 'Angry' | 'Neutral';
   eventHistory: string[];
   narrativeCadence: NarrativeCadence;
 }
 
+/**
+ * The core, persistent state of the game world.
+ */
 export interface GameState {
   playerCharacter: GeneratedCharacter;
   educatorRoster: GeneratedCharacter[];
   subjectRoster: GeneratedCharacter[];
   currentLedger: YandereLedger;
+}
+
+/**
+ * The creative output from the AI for a single turn.
+ */
+export interface CreativeOutput {
   reasoning: string;
   narrative: string;
   playerChoices: {id: string; text: string}[];
   imagePrompt: { prompt: string; negativePrompt?: string; };
   ttsText: string;
   speaker: string;
-  ttsVocalStyle: string;
+}
+
+/**
+ * Context required to process the *next* turn, including the roles
+ * assigned in the current turn. This eliminates the need for type hacks.
+ */
+export interface TurnContext {
+    eventId: string;
+    cadence: NarrativeCadence;
+    assignedRoles: Record<string, GeneratedCharacter>;
+    vocalStyle: string;
 }
 
 export interface EventTemplate {
@@ -107,32 +120,24 @@ export interface EventTemplate {
     requiredTraits?: TraitKey[];
     forbiddenTraits?: TraitKey[];
     mustBePlayer?: boolean;
-    relationshipWith?: { role: string; minBond?: number; maxBond?: number; };
   }>;
   sceneSetupKey: string;
   eventTitleKey?: string;
   possibleChoices: EventChoice[];
-  followUpEvents?: { eventId: string; probability: number; delay?: number; }[];
 }
 
 export interface EventChoice {
   id: string;
   choiceTextTemplate: string;
-  statCheck?: { stat: keyof Pick<YandereLedger, 'subjectAgencyBudget' | 'hopeLevel' | 'traumaLevel' | 'physicalIntegrity'>; difficulty: number; checkType: 'gte' | 'lte' };
-  traitCheck?: { trait: TraitKey; required: boolean };
-  bondCheck?: { role: string; minBond?: number; maxBond?: number };
   consequences: EventConsequence[];
 }
 
 export interface EventConsequence {
-  target: 'player' | string;
   statChanges?: Partial<Omit<YandereLedger, 'turn' | 'currentLocationId' | 'currentEventId' | 'day' | 'timeOfDay' | 'interpersonalBonds' | 'eventHistory' | 'narrativeCadence'>>;
   bondChanges?: { targetRole: string; change: number }[];
   addTrait?: TraitKey;
   removeTrait?: TraitKey;
   setMood?: { role: string; mood: string };
-  setGoal?: { role: string; goal: string };
-  forceFollowUpEventId?: string;
   changeLocation?: LocationKey;
   updateWorldState?: Partial<Pick<YandereLedger, 'forgeIntensityLevel' | 'magistraMood'>>;
 }

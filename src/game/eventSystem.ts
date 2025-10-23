@@ -1,11 +1,9 @@
 
-import { YandereLedger, GeneratedCharacter, EventTemplate } from "../types";
-import { LOCATIONS } from "../constants/proceduralConstants";
-import { NarrativeCadence } from "../types";
+import { YandereLedger, GeneratedCharacter, EventTemplate, NarrativeCadence } from "src/types/index";
+import { LOCATIONS, EVENT_TEMPLATES } from "src/constants/gameData";
 
 type Rosters = { educators: GeneratedCharacter[], subjects: GeneratedCharacter[] };
 
-// State machine for cadence transitions
 const cadenceTransitions: Record<NarrativeCadence, NarrativeCadence[]> = {
     [NarrativeCadence.Comfort]: [NarrativeCadence.Tension, NarrativeCadence.Humor],
     [NarrativeCadence.Tension]: [NarrativeCadence.Terror, NarrativeCadence.Comfort, NarrativeCadence.Humor],
@@ -35,20 +33,17 @@ function assignRoles(
 
         for (const char of characters) {
             let matches = true;
-            // Check archetype
             if (criteria.archetype) {
                 const archetypes = Array.isArray(criteria.archetype) ? criteria.archetype : [criteria.archetype];
                 if (!archetypes.includes(char.archetype)) {
                     matches = false;
                 }
             }
-            // Check required traits
             if (matches && criteria.requiredTraits) {
                 if (!criteria.requiredTraits.every(trait => char.traits.includes(trait))) {
                     matches = false;
                 }
             }
-            // Check forbidden traits
             if (matches && criteria.forbiddenTraits) {
                 if (criteria.forbiddenTraits.some(trait => char.traits.includes(trait))) {
                     matches = false;
@@ -62,10 +57,7 @@ function assignRoles(
                 break;
             }
         }
-        if (!found) {
-            console.error(`Failed to cast role "${role}" for event "${event.id}". No matching characters found.`);
-            return null; // Cannot cast this role, event fails
-        }
+        if (!found) return null;
     }
     return assignments;
 }
@@ -74,44 +66,22 @@ export function selectNextEvent(
     ledger: YandereLedger,
     player: GeneratedCharacter,
     rosters: Rosters,
-    eventTemplates: EventTemplate[]
 ): { event: EventTemplate; assignedRoles: Record<string, GeneratedCharacter> } | null {
     const currentLocation = LOCATIONS[ledger.currentLocationId];
     if (!currentLocation) return null;
 
-    // 1. Cadence Filtering
-    const previousCadence = ledger.narrativeCadence;
-    const possibleNextCadences = cadenceTransitions[previousCadence];
+    const possibleNextCadences = cadenceTransitions[ledger.narrativeCadence];
     
-    const cadenceFilteredEvents = eventTemplates.filter(event => {
+    const potentialEvents = EVENT_TEMPLATES.filter(event => {
         const eventCadences = Array.isArray(event.cadence) ? event.cadence : [event.cadence];
-        return eventCadences.some(c => possibleNextCadences.includes(c));
-    });
-
-    // 2. Standard Filtering Logic
-    const potentialEvents = cadenceFilteredEvents.filter(event => {
-        // Filter by location tags
-        if (!event.locationTags.some(tag => currentLocation.tags.includes(tag))) {
-            return false;
-        }
-        // Filter by specific locations if specified
-        if (event.specificLocations && !event.specificLocations.includes(ledger.currentLocationId)) {
-            return false;
-        }
-        // Filter out unique events already in history
-        if (event.isUnique && ledger.eventHistory.includes(event.id)) {
-            return false;
-        }
-        // Filter by trigger conditions
-        if (!event.triggerConditions(ledger, player, rosters)) {
-            return false;
-        }
-        return true;
+        return eventCadences.some(c => possibleNextCadences.includes(c)) &&
+               event.locationTags.some(tag => currentLocation.tags.includes(tag)) &&
+               !(event.isUnique && ledger.eventHistory.includes(event.id)) &&
+               event.triggerConditions(ledger, player, rosters);
     });
 
     if (potentialEvents.length === 0) return null;
     
-    // 3. Casting and Selection
     const shuffledEvents = potentialEvents.sort(() => Math.random() - 0.5);
     for (const event of shuffledEvents) {
         const assignedRoles = assignRoles(event, player, rosters);
@@ -120,5 +90,5 @@ export function selectNextEvent(
         }
     }
 
-    return null; // No event could be successfully cast
+    return null;
 }
